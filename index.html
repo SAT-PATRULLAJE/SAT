@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"/>
+<title>SAT – Sistema de Análisis Territorial (Demo)</title>
+
+<!-- Leaflet & Heatmap -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+<style>
+  :root{
+    --sat:#0a3d62; --ink:#1e293b; --bg:#f6f7fb; --panel:#ffffff;
+    --muted:#64748b; --accent:#ff8a00;
+    --radius:12px; --gap:10px; --h-header:56px; --w-sidebar:320px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Arial, sans-serif;
+  }
+
+  /* Header */
+  .app-header{
+    position:sticky; top:0; z-index:1000;
+    height:var(--h-header); display:flex; align-items:center; gap:12px;
+    padding:0 14px; background:var(--sat); color:#fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,.1);
+  }
+  .brand{ font-weight:700; letter-spacing:.2px; display:flex; align-items:center; gap:8px;}
+  .brand .logo{
+    width:28px;height:28px; border-radius:6px; background:linear-gradient(135deg,#0a3d62,#126ca3);
+    display:inline-block;
+  }
+  .tag{ font-size:12px; background:rgba(255,255,255,.15); padding:4px 8px; border-radius:999px }
+  .hamb{ display:none; margin-left:auto; background:#fff; color:#123; border:0; border-radius:10px; padding:8px 10px; cursor:pointer }
+
+  /* Layout */
+  .app{
+    height: calc(100% - var(--h-header));
+    display:grid; grid-template-columns: var(--w-sidebar) 1fr;
+    gap: var(--gap); padding: var(--gap);
+  }
+
+  /* Sidebar */
+  .sidebar{
+    background: var(--panel);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 20px rgba(0,0,0,.06);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .side-header{ padding:12px 14px 8px; border-bottom:1px solid #eef2f7; }
+  .side-header h2{ margin:0; font-size:16px }
+  .side-about{ padding:8px 14px 0; font-size:13px; color:var(--muted); line-height:1.4 }
+  .kpis{ display:flex; gap:8px; flex-wrap:wrap; padding:10px 14px 0; }
+  .kpi{ background:#f1f5f9; border:1px solid #e2e8f0; border-radius:10px; padding:8px 10px; font-size:12.5px; }
+
+  .chips{ display:flex; flex-wrap:wrap; gap:8px; padding:8px 14px 0 }
+  .chip{ border:1px solid #cbd5e1; background:#fff; padding:6px 10px; border-radius:999px; font-size:12px; cursor:pointer; }
+
+  .filters{ padding:12px 14px; overflow:auto; flex:1; }
+  .frow{ display:grid; gap:10px; grid-template-columns: repeat(2, 1fr); }
+  .frow.full{ grid-template-columns: 1fr; }
+  .field{ display:flex; flex-direction:column; gap:6px; }
+  .field label{ font-size:12px; color:#334155 }
+  .field select, .field input[type="date"], .field input[type="text"]{
+    appearance:none; border:1px solid #cbd5e1; border-radius:10px; padding:8px 10px; font-size:14px; background:#fff;
+  }
+  .range{ display:flex; align-items:center; gap:10px; }
+  input[type="range"]{ width:100% }
+
+  .actions{
+    padding:12px 14px 14px; border-top:1px solid #eef2f7; display:grid; gap:8px;
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center;
+    gap:8px; padding:9px 12px; border-radius:10px; border:1px solid #cbd5e1; background:#fff; color:#0f172a;
+    cursor:pointer; text-decoration:none; font-size:14px;
+  }
+  .btn.primary{ background:#0a3d62; color:#fff; border-color:#0a3d62 }
+  .btn.ghost{ background:#fff; color:#0a3d62; border-color:#0a3d62 }
+
+  /* Mapa */
+  .map-wrap{
+    position:relative; min-height:0;
+    background: var(--panel);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 20px rgba(0,0,0,.06);
+    overflow:hidden;
+  }
+  #map{ position:absolute; inset:0 }
+
+  .wm{
+    position:absolute; left:12px; bottom:12px;
+    background:rgba(255,255,255,.9); border:1px solid #e2e8f0; padding:6px 10px; border-radius:10px; font-size:11px;
+    pointer-events:none; z-index:400
+  }
+
+  /* Popup pills */
+  .pill{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; margin-left:6px }
+  .pill.red{ background:#fce2e2; color:#b30000 }
+  .pill.ylw{ background:#fff1bf; color:#826300 }
+  .pill.grn{ background:#dff3df; color:#1d6b1d }
+
+  /* Mobile */
+  @media (max-width: 1024px){
+    .hamb{ display:inline-flex }
+    .app{ grid-template-columns: 1fr; }
+    .sidebar{
+      position:fixed; z-index:1100; top:var(--h-header); left:0; bottom:0; width:min(92vw, 380px);
+      transform: translateX(-105%); transition: transform .25s ease; border-top-right-radius:0; border-bottom-right-radius:0;
+    }
+    .sidebar.open{ transform: translateX(0) }
+    .map-wrap{ height: calc(100vh - var(--h-header) - 2*var(--gap)); }
+  }
+
+  /* Dark mode */
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0e1116; --ink:#e6e6e6; --panel:#0f172a; --muted:#94a3b8 }
+    .kpi{ background:#0b1320; border-color:#1f2937 }
+    .chip{ background:#0b1320; border-color:#1f2937; color:#e6e6e6 }
+    .field select, .field input{ background:#0b1320; border-color:#1f2937; color:#e6e6e6 }
+    .btn{ border-color:#1f2937; background:#0b1320; color:#e6e6e6 }
+    .btn.primary{ background:#0a3d62; border-color:#0a3d62; color:#e6e6e6 }
+    .wm{ background:rgba(15,23,42,.9); color:#cbd5e1; border-color:#1f2937 }
+  }
+</style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand"><span class="logo"></span> SAT – Sistema de Análisis Territorial</div>
+    <div class="tag">Demo</div>
+    <button id="btnHamb" class="hamb">☰ Panel</button>
+  </header>
+
+  <main class="app">
+    <!-- SIDEBAR IZQUIERDA -->
+    <aside id="sidebar" class="sidebar">
+      <div class="side-header"><h2>Panel de control</h2></div>
+      <div class="side-about">
+        <p><b>¿Qué es el SAT?</b> El <b>SAT</b> integra datos operativos y georreferenciados para
+        <b>identificar alertas</b>, <b>priorizar patrullajes</b> y <b>visualizar tendencias</b>. Permite filtrar por
+        <i>jurisdicción</i>, <i>día</i>, <i>franja horaria</i> y <i>confiabilidad</i>, generando insumos listos para campo
+        (mapas, rutas y mensajes).</p>
+      </div>
+
+      <!-- KPIs -->
+      <div class="kpis">
+        <div class="kpi">Alertas: <b id="kpi-alertas">0</b></div>
+        <div class="kpi">Eventos: <b id="kpi-eventos">0</b></div>
+        <div class="kpi">Periodo: <b id="kpi-periodo">sin filtro</b></div>
+      </div>
+
+      <!-- Chips -->
+      <div class="chips">
+        <button class="chip" data-range="24h">24h</button>
+        <button class="chip" data-range="48h">48h</button>
+        <button class="chip" data-range="7d">Semana</button>
+        <button class="chip" data-range="clear">Sin filtro</button>
+      </div>
+
+      <!-- FILTROS -->
+      <div class="filters">
+        <div class="frow">
+          <div class="field">
+            <label for="f-comi">Comisaría</label>
+            <select id="f-comi"><option value="">(todas)</option></select>
+          </div>
+          <div class="field">
+            <label for="f-dist">Distrito</label>
+            <select id="f-dist"><option value="">(todos)</option></select>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="field">
+            <label for="f-delito">Evento</label>
+            <select id="f-delito"><option value="">(todos)</option></select>
+          </div>
+          <div class="field">
+            <label for="f-dia">Día</label>
+            <select id="f-dia"><option value="">(todos)</option></select>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="field">
+            <label for="f-franja">Franja</label>
+            <select id="f-franja"><option value="">(todas)</option></select>
+          </div>
+          <div class="field">
+            <label>Conf. mínima</label>
+            <div class="range">
+              <input id="f-conf" type="range" min="0" max="100" value="0" step="5"/>
+              <span id="f-conf-val">0</span>
+            </div>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="field">
+            <label for="f-desde">Desde</label>
+            <input id="f-desde" type="date"/>
+          </div>
+          <div class="field">
+            <label for="f-hasta">Hasta</label>
+            <input id="f-hasta" type="date"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACCIONES -->
+      <div class="actions">
+        <a id="lnk-informe"      class="btn primary" href="#" target="_blank" rel="noopener">Informe 📄</a>
+        <a id="lnk-metricas"     class="btn ghost"   href="#" target="_blank" rel="noopener">Métricas 📊</a>
+        <a id="lnk-historicos"   class="btn"         href="#" target="_blank" rel="noopener">Históricos 📚</a>
+      </div>
+    </aside>
+
+    <!-- MAPA DERECHA -->
+    <section class="map-wrap">
+      <div id="map"></div>
+      <div class="wm">Sistema de Análisis Territorial – © Derechos Reservados – Lic. Sebastián González – Of. Ppal.</div>
+    </section>
+  </main>
+
+<script>
+/* =================== CONFIG URIs / CAPAS OPCIONALES =================== */
+const LINKS = {
+  informe:   '#', // ← reemplazar por tu URL real
+  metricas:  '#', // ← reemplazar por tu URL real
+  historicos:'#'  // ← repositorio GitHub con mapas por mes
+};
+const USE_CUADRANTES = true;  // activar capa demo de cuadrantes
+const USE_HOTNESS    = true;  // activar capa demo de hotness
+
+/* =================== Datos MOCK =================== */
+const ALERTS = [
+  { id:'A-01', lat:-32.889, lng:-68.845, radio:350, comi:'Cria 12', dist:'Capital',    delito:'Robo',  dia:'Lunes',    franja:'Noche', rango:'20–02h', zona:'Plaza Mayor', calles:'San Juan – Patricias – Rioja – 9 de Julio', conf:72, link:'https://maps.google.com', msgWA:'', fechaISO:'2025-08-25T23:30:00Z' },
+  { id:'A-02', lat:-32.895, lng:-68.860, radio:250, comi:'Cria 7',  dist:'Godoy Cruz', delito:'Hurto', dia:'Viernes',  franja:'Tarde', rango:'14–18h', zona:'Parque Sur',  calles:'Italia – Sarmiento – Colón – Mitre',         conf:55, link:'',                         msgWA:'', fechaISO:'2025-08-27T16:10:00Z' },
+  { id:'A-03', lat:-32.902, lng:-68.835, radio:300, comi:'Cria 34', dist:'Guaymallén', delito:'Daños', dia:'Miércoles',franja:'Noche', rango:'21–01h', zona:'Barrio Norte', calles:'Belgrano – San Martín – Rivadavia – Lavalle', conf:38, link:'',                         msgWA:'', fechaISO:'2025-08-26T23:45:00Z' }
+];
+
+const CRIMES = [
+  { lat:-32.888, lng:-68.846, delito:'Robo',  comi:'Cria 12', dist:'Capital',    fechaISO:'2025-08-25T22:10:00Z' },
+  { lat:-32.891, lng:-68.843, delito:'Robo',  comi:'Cria 12', dist:'Capital',    fechaISO:'2025-08-26T00:40:00Z' },
+  { lat:-32.895, lng:-68.858, delito:'Hurto', comi:'Cria 7',  dist:'Godoy Cruz', fechaISO:'2025-08-27T15:20:00Z' },
+  { lat:-32.903, lng:-68.833, delito:'Daños', comi:'Cria 34', dist:'Guaymallén', fechaISO:'2025-08-26T23:10:00Z' },
+  { lat:-32.899, lng:-68.839, delito:'Hurto', comi:'Cria 34', dist:'Guaymallén', fechaISO:'2025-08-27T11:40:00Z' },
+];
+
+/* GeoJSON demo de cuadrantes (rectángulos de ejemplo) */
+const CUADRANTES = {
+  "type":"FeatureCollection",
+  "features":[
+    {"type":"Feature","properties":{"cuadrante":"Q1"},"geometry":{"type":"Polygon","coordinates":[[[-68.86,-32.90],[-68.84,-32.90],[-68.84,-32.88],[-68.86,-32.88],[-68.86,-32.90]]]}},
+    {"type":"Feature","properties":{"cuadrante":"Q2"},"geometry":{"type":"Polygon","coordinates":[[[-68.86,-32.88],[-68.84,-32.88],[-68.84,-32.86],[-68.86,-32.86],[-68.86,-32.88]]]}}
+  ]
+};
+
+/* Hotness demo */
+const HOTNESS = [
+  {lat:-32.889, lng:-68.845, hotness:78, semana:'2025-W35', cuadrante:'Q1'},
+  {lat:-32.896, lng:-68.858, hotness:61, semana:'2025-W35', cuadrante:'Q2'},
+  {lat:-32.901, lng:-68.838, hotness:42, semana:'2025-W35', cuadrante:'Q1'}
+];
+
+/* =================== Utilidades =================== */
+function uniq(arr){ return Array.from(new Set(arr.filter(x=>x && String(x).trim()))).sort((a,b)=>String(a).localeCompare(String(b))); }
+function confColor(c){ if (c>=70) return '#c1121f'; if (c>=40) return '#ff9f1c'; return '#2a9d8f'; }
+function confPill(c){ const cls = (c>=70?'red':(c>=40?'ylw':'grn')); return '<span class="pill '+cls+'">Conf. '+(isFinite(c)?c:'-')+'</span>'; }
+function buildWAmessage(a){
+  if (a.msgWA && a.msgWA.trim()) return a.msgWA;
+  return '🛡️ PATRULLAJE SAT ['+(a.comi||'')+' / '+(a.dist||'')+']\n' +
+         'Zona: '+(a.zona||'')+'\n' +
+         'Franja: '+(a.dia||'')+' / '+(a.franja||'')+' ('+(a.rango||'')+')\n' +
+         'Radio: '+(a.radio||0)+' m\n' +
+         (a.link?('Mapa: '+a.link+'\n'):'') +
+         'Concluir: informar novedades en SAT.';
+}
+function toInputDate(d){ const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); }
+function formatPer(yyyy_mm_dd){
+  const parts = (yyyy_mm_dd || '').split('-'); if (parts.length<3) return yyyy_mm_dd||'';
+  const y=parts[0], m=parts[1], d=parts[2], nowY=String(new Date().getFullYear());
+  return (y===nowY ? (d+'/'+m) : (d+'/'+m+'/'+y));
+}
+
+/* =================== Init enlaces y sidebar =================== */
+document.getElementById('lnk-informe').href    = LINKS.informe;
+document.getElementById('lnk-metricas').href   = LINKS.metricas;
+document.getElementById('lnk-historicos').href = LINKS.historicos;
+
+const sidebar = document.getElementById('sidebar');
+document.getElementById('btnHamb').onclick = ()=> sidebar.classList.toggle('open');
+
+/* =================== Mapa =================== */
+const map = L.map('map', { zoomControl: true });
+const baseOSM  = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap' }).addTo(map);
+const baseHot  = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap / HOT' });
+const baseDE   = L.tileLayer('https://{s}.tile.openstreetmap.de/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap.de' });
+
+(function fitInit(){
+  const coords = ALERTS.length ? ALERTS.map(a=>[a.lat,a.lng]) : CRIMES.map(p=>[p.lat,p.lng]);
+  if (!coords.length){ map.setView([-32.89,-68.85], 12); return; }
+  const b = L.latLngBounds(coords); map.fitBounds(b.pad(0.15));
+})();
+
+let layerAlerts = L.layerGroup().addTo(map);
+let layerPoints = L.layerGroup().addTo(map);
+let layerHeat   = L.heatLayer([], { radius:25, blur:18, maxZoom:17 });
+
+let layerCuadrantes = L.layerGroup();
+if (USE_CUADRANTES && CUADRANTES && CUADRANTES.type==='FeatureCollection'){
+  L.geoJSON(CUADRANTES, { style:{ color:'#666', weight:1, fillOpacity:0.05 } })
+    .bindPopup(f => 'Cuadrante: ' + (f && f.properties ? (f.properties.nombre || f.properties.cuadrante || '') : ''))
+    .addTo(layerCuadrantes);
+}
+let layerHotness = L.layerGroup();
+if (USE_HOTNESS && Array.isArray(HOTNESS) && HOTNESS.length){
+  HOTNESS.forEach(h=>{
+    const col = (h.hotness>=70? '#c1121f' : (h.hotness>=40 ? '#ff9f1c' : '#2a9d8f'));
+    L.circleMarker([h.lat,h.lng], {radius:4, weight:0, fillColor:col, fillOpacity:.85})
+      .bindTooltip('Hotness '+(h.hotness??'-')+(h.semana?' – '+h.semana:'')+(h.cuadrante?' – '+h.cuadrante:''))
+      .addTo(layerHotness);
+  });
+}
+L.control.layers(
+  { 'OSM':baseOSM, 'Calles A (HOT)':baseHot, 'Calles B (DE)':baseDE },
+  { 'Centroides':layerAlerts, 'Eventos':layerPoints, 'Heatmap':layerHeat, 'Cuadrantes':layerCuadrantes, 'Histórico (hotness)':layerHotness },
+  { position:'topright', collapsed:true }
+).addTo(map);
+
+/* =================== Filtros UI =================== */
+function fillSelect(sel, values){
+  sel.innerHTML = '<option value="">(todos)</option>' + values.map(v=>'<option>'+v+'</option>').join('');
+}
+fillSelect(document.getElementById('f-comi'),   uniq(ALERTS.map(a=>a.comi)));
+fillSelect(document.getElementById('f-dist'),   uniq(ALERTS.map(a=>a.dist)));
+fillSelect(document.getElementById('f-delito'), uniq(ALERTS.map(a=>a.delito)));
+fillSelect(document.getElementById('f-dia'),    uniq(ALERTS.map(a=>a.dia)));
+fillSelect(document.getElementById('f-franja'), uniq(ALERTS.map(a=>a.franja)));
+
+/* =================== Filtro y render =================== */
+function filtroActual(){
+  const comi   = document.getElementById('f-comi').value;
+  const dist   = document.getElementById('f-dist').value;
+  const delito = document.getElementById('f-delito').value;
+  const dia    = document.getElementById('f-dia').value;
+  const franja = document.getElementById('f-franja').value;
+  const conf   = +document.getElementById('f-conf').value || 0;
+
+  const desdeV = document.getElementById('f-desde').value;
+  const hastaV = document.getElementById('f-hasta').value;
+  const desdeT = desdeV ? new Date(desdeV + 'T00:00:00') : null;
+  const hastaT = hastaV ? new Date(hastaV + 'T23:59:59') : null;
+
+  const inRange = iso => {
+    if (!iso) return true;
+    const t = new Date(iso);
+    if (desdeT && t < desdeT) return false;
+    if (hastaT && t > hastaT) return false;
+    return true;
+  };
+
+  const fAlerts = ALERTS.filter(a =>
+    (!comi   || a.comi===comi) &&
+    (!dist   || a.dist===dist) &&
+    (!delito || a.delito===delito) &&
+    (!dia    || a.dia===dia) &&
+    (!franja || a.franja===franja) &&
+    (!conf   || (isFinite(a.conf) && a.conf>=conf)) &&
+    inRange(a.fechaISO)
+  );
+  const fCrimes = CRIMES.filter(p =>
+    (!comi   || p.comi===comi) &&
+    (!dist   || p.dist===dist) &&
+    (!delito || p.delito===delito) &&
+    inRange(p.fechaISO)
+  );
+
+  let periodo = 'sin filtro';
+  if (desdeV && hastaV) periodo = formatPer(desdeV) + ' – ' + formatPer(hastaV);
+  else if (desdeV)      periodo = 'Desde: ' + formatPer(desdeV);
+  else if (hastaV)      periodo = 'Hasta: ' + formatPer(hastaV);
+
+  return {alerts:fAlerts, crimes:fCrimes, periodo};
+}
+
+let renderTimer=null;
+function renderDebounced(){ clearTimeout(renderTimer); renderTimer=setTimeout(render, 120); }
+
+function render(){
+  const F = filtroActual();
+
+  // Centroides
+  layerAlerts.clearLayers();
+  F.alerts.forEach(a=>{
+    const circ = L.circle([a.lat,a.lng], {radius:a.radio, color: confColor(a.conf), fillColor: confColor(a.conf), fillOpacity:.15, weight:2});
+    const btnWA = '<div style="margin-top:8px"><a target="_blank" rel="noopener" href="https://wa.me/?text='+encodeURIComponent(buildWAmessage(a))+'" class="btn">📲 WhatsApp</a></div>';
+    const link  = a.link ? ('<br>🔗 <a target="_blank" rel="noopener" href="'+a.link+'">Ruta de patrullaje</a>') : '';
+    const html  = '<div style="max-height:220px;overflow:auto"><b>'+ (a.comi||'') +' / '+ (a.dist||'') +'</b> ' + confPill(a.conf) +
+                  '<br>🗓 '+(a.dia||'')+' / '+(a.franja||'')+' <i>('+(a.rango||'')+')</i>' +
+                  '<br>📍 <b>Zona:</b> '+(a.zona||'') +
+                  (a.calles?('<br>🛣 <b>Polígono:</b> '+a.calles):'') +
+                  '<br>📏 Radio: '+(a.radio||0)+' m' +
+                  link + btnWA + '</div>';
+    circ.bindPopup(html);
+    layerAlerts.addLayer(circ);
+  });
+
+  // Puntos
+  layerPoints.clearLayers();
+  F.crimes.forEach(p=>{
+    L.circleMarker([p.lat,p.lng], {radius:3, weight:0, fillColor: '#ff8a00', fillOpacity:.85})
+      .bindTooltip(p.delito||'')
+      .addTo(layerPoints);
+  });
+
+  // Heatmap
+  layerHeat.setLatLngs(F.crimes.map(p=>[p.lat,p.lng,0.6]));
+
+  // KPIs
+  document.getElementById('kpi-alertas').textContent = F.alerts.length;
+  document.getElementById('kpi-eventos').textContent = F.crimes.length;
+  document.getElementById('kpi-periodo').textContent = F.periodo;
+
+  // Slider label
+  document.getElementById('f-conf-val').textContent = document.getElementById('f-conf').value;
+}
+['f-comi','f-dist','f-delito','f-dia','f-franja','f-conf','f-desde','f-hasta'].forEach(id=>{
+  const el = document.getElementById(id);
+  el.addEventListener('input', renderDebounced);
+  el.addEventListener('change', renderDebounced);
+});
+document.querySelectorAll('.chip').forEach(ch=>{
+  ch.addEventListener('click', ()=>{
+    const v = ch.getAttribute('data-range');
+    const today = new Date();
+    const fDesde = document.getElementById('f-desde');
+    const fHasta = document.getElementById('f-hasta');
+    if (v==='24h'){ const d = new Date(today); d.setDate(today.getDate()-1); fDesde.value = toInputDate(d); fHasta.value = toInputDate(today); }
+    else if (v==='48h'){ const d = new Date(today); d.setDate(today.getDate()-2); fDesde.value = toInputDate(d); fHasta.value = toInputDate(today); }
+    else if (v==='7d'){ const d = new Date(today); d.setDate(today.getDate()-7); fDesde.value = toInputDate(d); fHasta.value = toInputDate(today); }
+    else { fDesde.value = ''; fHasta.value = ''; }
+    renderDebounced();
+  });
+});
+
+// Inicio
+render();
+
+</script>
+</body>
+</html>
